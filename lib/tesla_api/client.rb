@@ -1,11 +1,9 @@
 module TeslaApi
   class Client
-    attr_reader :api, :email, :access_token, :access_token_expires_at, :refresh_token, :client_id, :client_secret
+    attr_reader :api, :email, :access_token, :access_token_expires_at, :refresh_token, :client_id, :client_secret, :user_agent
 
     BASE_URI = "https://owner-api.teslamotors.com"
     SSO_URI = "https://auth.tesla.com"
-
-    DEFAULT_HEADERS = {"User-Agent" => "github.com/timdorr/tesla-api v:#{VERSION}"}
 
     def initialize(
       email: nil,
@@ -17,7 +15,8 @@ module TeslaApi
       retry_options: nil,
       base_uri: nil,
       sso_uri: nil,
-      client_options: {}
+      client_options: {},
+      user_agent: "github.com/timdorr/tesla-api v:#{VERSION}"
     )
       @email = email
       @base_uri = base_uri || BASE_URI
@@ -30,10 +29,12 @@ module TeslaApi
       @access_token_expires_at = access_token_expires_at
       @refresh_token = refresh_token
 
+      @user_agent = user_agent
+
       @api = Faraday.new(
         @base_uri + "/api/1",
         {
-          headers: DEFAULT_HEADERS
+          headers: default_headers
         }.merge(client_options)
       ) { |conn|
         # conn.response :logger, nil, { headers: true, bodies: true }
@@ -77,7 +78,7 @@ module TeslaApi
           scope: "openid email offline_access",
           state: state
         },
-        DEFAULT_HEADERS
+        default_headers
       )
 
       cookie = response.headers["set-cookie"].split(" ").first
@@ -98,7 +99,7 @@ module TeslaApi
           "identity" => email,
           "credential" => password
         )),
-        {"Cookie" => cookie}.merge(DEFAULT_HEADERS)
+        {"Cookie" => cookie}.merge(default_headers)
       )
 
       if response.body.match?(/passcode/)
@@ -136,7 +137,7 @@ module TeslaApi
             state: state
           }),
           URI.encode_www_form({"transaction_id" => transaction_id}),
-          {"Cookie" => cookie}.merge(DEFAULT_HEADERS)
+          {"Cookie" => cookie}.merge(default_headers)
         )
       end
 
@@ -193,6 +194,10 @@ module TeslaApi
 
     def vehicle(id)
       Vehicle.new(self, email, id, get("/vehicles/#{id}")["response"])
+    end
+
+    def default_headers
+      {"User-Agent" => user_agent}
     end
   end
 
