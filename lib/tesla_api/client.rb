@@ -95,7 +95,8 @@ module TeslaApi
         URI.encode_www_form(parameters.merge(
           "identity" => email,
           "credential" => password
-        ))
+        )),
+        {"Cookie" => cookie}
       )
 
       if response.body.match?(/passcode/)
@@ -132,7 +133,8 @@ module TeslaApi
             scope: "openid email offline_access",
             state: state
           }),
-          URI.encode_www_form({"transaction_id" => transaction_id})
+          URI.encode_www_form({"transaction_id" => transaction_id}),
+          {"Cookie" => cookie}
         )
       end
 
@@ -190,7 +192,6 @@ module TeslaApi
     def vehicle(id)
       Vehicle.new(self, email, id, get("/vehicles/#{id}")["response"])
     end
-
   end
 
   class MFARequired < StandardError; end
