@@ -1,6 +1,6 @@
 module TeslaApi
   class Client
-    attr_reader :api, :email, :access_token, :access_token_expires_at, :refresh_token, :client_id, :client_secret
+    attr_reader :api, :email, :access_token, :access_token_expires_at, :refresh_token, :client_id, :client_secret, :user_agent
 
     BASE_URI = "https://owner-api.teslamotors.com"
     SSO_URI = "https://auth.tesla.com"
@@ -15,7 +15,8 @@ module TeslaApi
       retry_options: nil,
       base_uri: nil,
       sso_uri: nil,
-      client_options: {}
+      client_options: {},
+      user_agent: "github.com/timdorr/tesla-api v:#{VERSION}"
     )
       @email = email
       @base_uri = base_uri || BASE_URI
@@ -28,11 +29,13 @@ module TeslaApi
       @access_token_expires_at = access_token_expires_at
       @refresh_token = refresh_token
 
+      @user_agent = user_agent
+
       @api = Faraday.new(
         @base_uri + "/api/1",
         client_options
       ) { |conn|
-        # conn.response :logger, nil, {headers: true, bodies: true}
+        # conn.response :logger, nil, { headers: true, bodies: true }
         conn.request :json
         conn.response :json
         conn.response :raise_error
@@ -62,12 +65,8 @@ module TeslaApi
       code_challenge = Base64.urlsafe_encode64(Digest::SHA256.hexdigest(code_verifier))
       state = rand(36**20).to_s(36)
 
-      sso_api = Faraday.new(@sso_uri + "/oauth2/v3") { |conn|
-        # conn.response :logger, nil, {headers: true, bodies: true}
-      }
-
-      response = sso_api.get(
-        "authorize",
+      response = Faraday.get(
+        @sso_uri + "/oauth2/v3/authorize",
         {
           client_id: "ownerapi",
           code_challenge: code_challenge,
@@ -83,8 +82,8 @@ module TeslaApi
       parameters = Hash[response.body.scan(/type="hidden" name="(.*?)" value="(.*?)"/)]
       transaction_id = parameters["transaction_id"]
 
-      response = sso_api.post(
-        "authorize?" + URI.encode_www_form({
+      response = Faraday.post(
+        @sso_uri + "/oauth2/v3/authorize?" + URI.encode_www_form({
           client_id: "ownerapi",
           code_challenge: code_challenge,
           code_challenge_method: "S256",
@@ -96,15 +95,14 @@ module TeslaApi
         URI.encode_www_form(parameters.merge(
           "identity" => email,
           "credential" => password
-        )),
-        "Cookie" => cookie
+        ))
       )
 
       if response.body.match?(/passcode/)
         raise MFARequired if mfa_code.nil?
         raise MFAInvalidPasscode unless mfa_code.to_s.match?(/^\d{6}$/)
 
-        factors = api.get(
+        factors = @api.get(
           @sso_uri + "/oauth2/v3/authorize/mfa/factors",
           {
             transaction_id: transaction_id
@@ -124,8 +122,8 @@ module TeslaApi
 
         raise MFAInvalidPasscode unless response.dig("data", "valid")
 
-        response = sso_api.post(
-          "authorize?" + URI.encode_www_form({
+        response = Faraday.post(
+          @sso_uri + "/oauth2/v3/authorize?" + URI.encode_www_form({
             client_id: "ownerapi",
             code_challenge: code_challenge,
             code_challenge_method: "S256",
@@ -134,14 +132,13 @@ module TeslaApi
             scope: "openid email offline_access",
             state: state
           }),
-          URI.encode_www_form({"transaction_id" => transaction_id}),
-          "Cookie" => cookie
+          URI.encode_www_form({"transaction_id" => transaction_id})
         )
       end
 
       code = CGI.parse(URI(response.headers["location"]).query)["code"].first
 
-      response = api.post(
+      response = @api.post(
         @sso_uri + "/oauth2/v3/token",
         {
           grant_type: "authorization_code",
@@ -193,6 +190,7 @@ module TeslaApi
     def vehicle(id)
       Vehicle.new(self, email, id, get("/vehicles/#{id}")["response"])
     end
+
   end
 
   class MFARequired < StandardError; end
